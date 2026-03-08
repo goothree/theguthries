@@ -75,6 +75,55 @@ create policy "Photos: delete own"
   on storage.objects for delete
   using (bucket_id = 'family-photos' AND auth.uid()::text = (storage.foldername(name))[1]);
 
+-- 5. REACTIONS TABLE
+--    One row per user per emoji per post (toggled on/off)
+create table if not exists public.reactions (
+  id         uuid primary key default gen_random_uuid(),
+  post_id    uuid references public.posts(id) on delete cascade,
+  user_id    uuid references auth.users(id) on delete cascade,
+  emoji      text not null,
+  created_at timestamptz default now(),
+  unique(post_id, user_id, emoji)
+);
+
+alter table public.reactions enable row level security;
+
+create policy "Reactions: read by members"
+  on public.reactions for select
+  using (auth.role() = 'authenticated');
+
+create policy "Reactions: insert by members"
+  on public.reactions for insert
+  with check (auth.uid() = user_id);
+
+create policy "Reactions: delete own"
+  on public.reactions for delete
+  using (auth.uid() = user_id);
+
+-- 6. COMMENTS TABLE
+create table if not exists public.comments (
+  id         uuid primary key default gen_random_uuid(),
+  post_id    uuid references public.posts(id) on delete cascade,
+  user_id    uuid references auth.users(id) on delete cascade,
+  author     text not null,
+  body       text not null,
+  created_at timestamptz default now()
+);
+
+alter table public.comments enable row level security;
+
+create policy "Comments: read by members"
+  on public.comments for select
+  using (auth.role() = 'authenticated');
+
+create policy "Comments: insert by members"
+  on public.comments for insert
+  with check (auth.uid() = user_id);
+
+create policy "Comments: delete own"
+  on public.comments for delete
+  using (auth.uid() = user_id);
+
 -- ============================================================
 -- Done! Your database is ready.
 -- ============================================================
