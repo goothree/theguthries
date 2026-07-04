@@ -161,6 +161,14 @@ const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 const EMOJIS = ['\u2764\ufe0f','\ud83d\ude02','\ud83d\ude2e','\ud83d\ude22','\ud83d\udc4f','\ud83d\udc4d','\ud83e\udd26'];
 
+// Deletion permissions:
+//  - Family members (any @theguthries.org address) can delete their own posts.
+//  - The admin (michael@theguthries.org) can delete any post.
+// NOTE: the database (Supabase RLS) is the real enforcement layer — see
+// supabase-setup.sql. These constants only control which buttons are shown.
+const FAMILY_DOMAIN = 'theguthries.org';
+const ADMIN_EMAIL   = 'michael@theguthries.org';
+
 let currentUser = null, currentProfile = null;
 
 async function init() {
@@ -241,13 +249,21 @@ async function loadFeed() {
   (comments||[]).forEach(c=>cmtByPost[c.post_id]?.push(c));
   feed.innerHTML=posts.map(p=>renderPost(p,rxByPost[p.id]||[],cmtByPost[p.id]||[])).join('');
 }
+function currentEmail() { return (currentUser?.email || '').toLowerCase(); }
+function isAdminUser() { return currentEmail() === ADMIN_EMAIL.toLowerCase(); }
+function isFamilyMember() { return currentEmail().endsWith('@' + FAMILY_DOMAIN.toLowerCase()); }
+function canDeletePost(p) {
+  const isOwn = p.user_id === currentUser?.id;
+  return isAdminUser() || (isOwn && isFamilyMember());
+}
 function renderPost(p,reactions,comments) {
   const date=new Date(p.created_at).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
   const initial=(p.author||'?').charAt(0).toUpperCase();
   const isOwn=p.user_id===currentUser?.id;
   const img=p.photo_url?`<img src="${escHtml(p.photo_url)}" alt="photo" loading="lazy" />`:'';
   const body=p.body?`<p class="post-text">${escHtml(p.body)}</p>`:'';
-  const del=isOwn?`<button class="post-delete" onclick="deletePost('${p.id}')">Delete post</button>`:'';
+  const delLabel=(!isOwn&&isAdminUser())?'Delete post (admin)':'Delete post';
+  const del=canDeletePost(p)?`<button class="post-delete" onclick="deletePost('${p.id}')">${delLabel}</button>`:'';
   return `<div class="post-card" id="post-${p.id}">${img}<div class="post-body-content"><div class="post-meta"><div class="post-avatar">${initial}</div><div><div class="post-author">${escHtml(p.author||'Family Member')}</div><div class="post-date">${date}</div></div></div>${body}${del}</div>${renderReactions(p.id,reactions)}<div class="comments-section">${renderComments(p.id,comments)}<div class="comment-input-row"><input type="text" id="comment-input-${p.id}" placeholder="Add a comment…" onkeydown="if(event.key==='Enter')addComment('${p.id}')" /><button class="comment-submit" onclick="addComment('${p.id}')">Post</button></div></div></div>`;
 }
 function renderReactions(postId,reactions) {
