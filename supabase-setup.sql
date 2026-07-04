@@ -156,6 +156,54 @@ create policy "Comments: delete own"
   on public.comments for delete
   using (auth.uid() = user_id);
 
+-- 7. INVITE-ONLY ACCESS
+--    Only emails listed in public.allowed_emails may create an account.
+--    Existing accounts are unaffected (the trigger only runs on sign-up).
+--    To invite someone: add their email to public.allowed_emails (via the
+--    Supabase Table Editor or: insert into public.allowed_emails(email) values ('them@example.com');)
+create table if not exists public.allowed_emails (
+  email      text primary key,
+  note       text,
+  created_at timestamptz default now()
+);
+
+alter table public.allowed_emails enable row level security;
+
+-- Only the admin can view/manage the invite list from the client.
+drop policy if exists "Allowlist: admin manage" on public.allowed_emails;
+create policy "Allowlist: admin manage"
+  on public.allowed_emails for all
+  using (lower(auth.jwt() ->> 'email') = 'michael@theguthries.org')
+  with check (lower(auth.jwt() ->> 'email') = 'michael@theguthries.org');
+
+-- Reject sign-ups whose email is not on the allow-list.
+create or replace function public.enforce_invite_only()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1 from public.allowed_emails
+    where lower(email) = lower(new.email)
+  ) then
+    raise exception 'invite_only: this email has not been invited';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_invite_only on auth.users;
+create trigger enforce_invite_only
+  before insert on auth.users
+  for each row execute function public.enforce_invite_only();
+
+-- Seed the admin so they can always sign in.
+insert into public.allowed_emails (email, note)
+  values ('michael@theguthries.org', 'admin')
+  on conflict (email) do nothing;
+
 -- ============================================================
 -- Done! Your database is ready.
 -- ============================================================
