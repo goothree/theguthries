@@ -117,6 +117,7 @@
       <div class="field"><label>Your Name</label><input type="text" id="signup-name" placeholder="Jane Smith" required /></div>
       <div class="field"><label>Email</label><input type="email" id="signup-email" placeholder="you@example.com" required /></div>
       <div class="field"><label>Password</label><input type="password" id="signup-password" placeholder="At least 8 characters" minlength="8" required /></div>
+      <p class="subtitle" style="margin-bottom:16px">This site is invite-only. Use the email a family admin added for you.</p>
       <button type="submit" class="btn btn-primary" id="signup-btn">Create Account</button>
     </form>
   </div>
@@ -207,7 +208,14 @@ async function handleSignup(e) {
   e.preventDefault(); const btn=document.getElementById('signup-btn'); const name=document.getElementById('signup-name').value.trim();
   btn.textContent='Creating account…'; btn.disabled=true;
   const { data, error } = await sb.auth.signUp({ email:document.getElementById('signup-email').value, password:document.getElementById('signup-password').value, options:{data:{name}} });
-  if (error) { showMsg('auth-msg', error.message, 'error'); }
+  if (error) {
+    const m = (error.message||'');
+    // Blocked (invite-only) sign-ups surface as a generic 500 from the auth
+    // API — the DB trigger message doesn't reach the client — so treat 500 as
+    // "not invited". Other errors (e.g. already-registered) keep their message.
+    const invite = error.status === 500 || /invite_only|has not been invited|Database error saving new user/i.test(m);
+    showMsg('auth-msg', invite ? 'This email hasn\u2019t been invited yet. Ask a family admin to add you, then try again.' : m, 'error');
+  }
   else { if (data.user) await sb.from('profiles').upsert({id:data.user.id,name}); showMsg('auth-msg','Account created! Sign in below.','info'); }
   btn.textContent='Create Account'; btn.disabled=false;
 }
