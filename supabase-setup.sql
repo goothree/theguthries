@@ -51,9 +51,24 @@ create policy "Posts: insert by members"
   on public.posts for insert
   with check (auth.uid() = user_id);
 
-create policy "Posts: delete own"
+-- Delete rules:
+--   * Family members (any @theguthries.org address) may delete their OWN posts.
+--   * The admin (michael@theguthries.org) may delete ANY post.
+-- (Drop the older policy first so this script stays re-runnable.)
+drop policy if exists "Posts: delete own" on public.posts;
+drop policy if exists "Posts: delete own (family)" on public.posts;
+drop policy if exists "Posts: admin delete any" on public.posts;
+
+create policy "Posts: delete own (family)"
   on public.posts for delete
-  using (auth.uid() = user_id);
+  using (
+    auth.uid() = user_id
+    and lower(auth.jwt() ->> 'email') like '%@theguthries.org'
+  );
+
+create policy "Posts: admin delete any"
+  on public.posts for delete
+  using (lower(auth.jwt() ->> 'email') = 'michael@theguthries.org');
 
 -- 4. STORAGE BUCKET
 --    Create the photo storage bucket (do this in Dashboard → Storage,
@@ -71,9 +86,26 @@ create policy "Photos: read by anyone"
   on storage.objects for select
   using (bucket_id = 'family-photos');
 
-create policy "Photos: delete own"
+-- Photo delete rules mirror the post rules: family members can delete photos
+-- in their own folder; the admin can delete any family photo.
+drop policy if exists "Photos: delete own" on storage.objects;
+drop policy if exists "Photos: delete own (family)" on storage.objects;
+drop policy if exists "Photos: admin delete any" on storage.objects;
+
+create policy "Photos: delete own (family)"
   on storage.objects for delete
-  using (bucket_id = 'family-photos' AND auth.uid()::text = (storage.foldername(name))[1]);
+  using (
+    bucket_id = 'family-photos'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+    AND lower(auth.jwt() ->> 'email') like '%@theguthries.org'
+  );
+
+create policy "Photos: admin delete any"
+  on storage.objects for delete
+  using (
+    bucket_id = 'family-photos'
+    AND lower(auth.jwt() ->> 'email') = 'michael@theguthries.org'
+  );
 
 -- 5. REACTIONS TABLE
 --    One row per user per emoji per post (toggled on/off)
