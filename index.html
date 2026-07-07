@@ -140,6 +140,7 @@
       <div class="user-info">
         <div class="avatar" id="header-avatar">?</div>
         <span class="user-name" id="header-name">Loading&hellip;</span>
+        <button class="btn btn-secondary btn-sm" id="enable-notif-btn" onclick="enableNotifications()" style="display:none">&#128276; Notifications</button>
         <button class="btn btn-secondary btn-sm" onclick="handleSignOut()">Sign Out</button>
       </div>
     </div>
@@ -180,6 +181,12 @@ const EMOJIS = ['\u2764\ufe0f','\ud83d\ude02','\ud83d\ude2e','\ud83d\ude22','\ud
 const FAMILY_DOMAIN = 'theguthries.org';
 const ADMIN_EMAIL   = 'michael@theguthries.org';
 
+// Web Push (browser / installed PWA notifications). This is the PUBLIC VAPID key.
+const VAPID_PUBLIC_KEY = 'BJjY75xQgjgSbopWcr9PUgFZLSGDdit-YZzufZ2q7RG1NXAbO2OGYcZgv7XD_oR_HrAgZ-ExhJZvrg50jJwaiAo';
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
 let currentUser = null, currentProfile = null;
 
 async function init() {
@@ -201,6 +208,58 @@ function showApp() {
   document.getElementById('header-name').textContent = name;
   document.getElementById('header-avatar').textContent = name.charAt(0).toUpperCase();
   loadFeed();
+  setupNotifUI();
+}
+function pushSupported() {
+  return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
+}
+async function setupNotifUI() {
+  const btn = document.getElementById('enable-notif-btn');
+  if (!btn) return;
+  if (!pushSupported() || Notification.permission === 'denied') { btn.style.display = 'none'; return; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    if (existing && Notification.permission === 'granted') {
+      await storeSubscription(existing);
+      btn.style.display = 'none';
+    } else {
+      btn.style.display = 'inline-flex';
+    }
+  } catch (e) { btn.style.display = 'inline-flex'; }
+}
+async function enableNotifications() {
+  if (!pushSupported()) { showMsg('post-msg', 'Notifications aren\u2019t supported on this device/browser. On iPhone, add the site to your Home Screen first.', 'error'); return; }
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { showMsg('post-msg', 'Notifications weren\u2019t enabled (permission not granted).', 'error'); return; }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
+    }
+    await storeSubscription(sub);
+    document.getElementById('enable-notif-btn').style.display = 'none';
+    showMsg('post-msg', 'Notifications enabled on this device!', 'info');
+  } catch (e) {
+    showMsg('post-msg', 'Could not enable notifications: ' + (e.message || e), 'error');
+  }
+}
+async function storeSubscription(sub) {
+  const j = sub.toJSON();
+  if (!currentUser || !j.keys) return;
+  await sb.from('push_subscriptions').upsert(
+    { user_id: currentUser.id, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth },
+    { onConflict: 'endpoint' }
+  );
+}
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
 }
 function showTab(tab) {
   document.getElementById('login-form').style.display  = tab==='login'  ? 'block':'none';

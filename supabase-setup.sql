@@ -219,9 +219,28 @@ create policy "Device tokens: manage own"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
---    Two deployed Edge Functions do the actual APNs sending:
---      notify-new-post   payload { postId, authorName, excludeUserId }
---      notify-engagement payload { postId, postAuthorId, engagementType, actorName }
+--    Web Push subscriptions (browser / installed PWA) are stored here. The web
+--    app (index.html + sw.js) subscribes and upserts a row per device.
+create table if not exists public.push_subscriptions (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid references auth.users(id) on delete cascade,
+  endpoint   text not null unique,
+  p256dh     text not null,
+  auth       text not null,
+  created_at timestamptz default now()
+);
+alter table public.push_subscriptions enable row level security;
+drop policy if exists "Push subs: manage own" on public.push_subscriptions;
+create policy "Push subs: manage own"
+  on public.push_subscriptions for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+--    Deployed Edge Functions do the actual sending:
+--      notify-new-post   (APNs) { postId, authorName, excludeUserId }
+--      notify-engagement (APNs) { postId, postAuthorId, engagementType, actorName }
+--      notify-web        (Web Push) { type: 'new_post'|'engagement', ...same fields }
+--        -> requires VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT secrets.
 --    Database triggers below call them via pg_net so that:
 --      * a new post notifies everyone except its author, and
 --      * a comment/reaction notifies only the post's author (skipping self-engagement).
@@ -257,6 +276,12 @@ begin
     'authorName', coalesce(new.author, 'Someone'),
     'excludeUserId', new.user_id
   ));
+  perform public.send_push_notification('notify-web', jsonb_build_object(
+    'type', 'new_post',
+    'postId', new.id,
+    'authorName', coalesce(new.author, 'Someone'),
+    'excludeUserId', new.user_id
+  ));
   return new;
 end;
 $$;
@@ -268,6 +293,13 @@ begin
   select user_id into post_author from public.posts where id = new.post_id;
   if post_author is not null and post_author <> new.user_id then
     perform public.send_push_notification('notify-engagement', jsonb_build_object(
+      'postId', new.post_id,
+      'postAuthorId', post_author,
+      'engagementType', 'comment',
+      'actorName', coalesce(new.author, 'Someone')
+    ));
+    perform public.send_push_notification('notify-web', jsonb_build_object(
+      'type', 'engagement',
       'postId', new.post_id,
       'postAuthorId', post_author,
       'engagementType', 'comment',
@@ -286,6 +318,13 @@ begin
   if post_author is not null and post_author <> new.user_id then
     select name into actor_name from public.profiles where id = new.user_id;
     perform public.send_push_notification('notify-engagement', jsonb_build_object(
+      'postId', new.post_id,
+      'postAuthorId', post_author,
+      'engagementType', 'reaction',
+      'actorName', coalesce(actor_name, 'Someone')
+    ));
+    perform public.send_push_notification('notify-web', jsonb_build_object(
+      'type', 'engagement',
       'postId', new.post_id,
       'postAuthorId', post_author,
       'engagementType', 'reaction',
