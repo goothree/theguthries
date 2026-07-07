@@ -204,6 +204,110 @@ insert into public.allowed_emails (email, note)
   values ('michael@theguthries.org', 'admin')
   on conflict (email) do nothing;
 
+-- 8. PUSH NOTIFICATIONS (native iOS app via APNs)
+--    Device tokens registered by the iOS app are stored here.
+create table if not exists public.device_tokens (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid references auth.users(id) on delete cascade,
+  token      text not null unique,
+  updated_at timestamptz default now()
+);
+alter table public.device_tokens enable row level security;
+drop policy if exists "Device tokens: manage own" on public.device_tokens;
+create policy "Device tokens: manage own"
+  on public.device_tokens for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+--    Two deployed Edge Functions do the actual APNs sending:
+--      notify-new-post   payload { postId, authorName, excludeUserId }
+--      notify-engagement payload { postId, postAuthorId, engagementType, actorName }
+--    Database triggers below call them via pg_net so that:
+--      * a new post notifies everyone except its author, and
+--      * a comment/reaction notifies only the post's author (skipping self-engagement).
+--    The bearer token is the public anon key (only needs to satisfy the
+--    functions' verify_jwt); the functions use their own service-role secret.
+create extension if not exists pg_net;
+
+create or replace function public.send_push_notification(fn text, payload jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  perform net.http_post(
+    url := 'https://otdpvabxlaygvxpqgwuk.supabase.co/functions/v1/' || fn,
+    body := payload,
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im90ZHB2YWJ4bGF5Z3Z4cHFnd3VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4MTEwODgsImV4cCI6MjA4ODM4NzA4OH0.DpSiLf0cJ4CqUvS2efm4C7qw1YaVi-9ZY5DIWiJrEws'
+    )
+  );
+exception when others then
+  raise warning 'send_push_notification(%) failed: %', fn, sqlerrm;
+end;
+$$;
+
+create or replace function public.tg_notify_new_post()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.send_push_notification('notify-new-post', jsonb_build_object(
+    'postId', new.id,
+    'authorName', coalesce(new.author, 'Someone'),
+    'excludeUserId', new.user_id
+  ));
+  return new;
+end;
+$$;
+
+create or replace function public.tg_notify_comment()
+returns trigger language plpgsql security definer set search_path = '' as $$
+declare post_author uuid;
+begin
+  select user_id into post_author from public.posts where id = new.post_id;
+  if post_author is not null and post_author <> new.user_id then
+    perform public.send_push_notification('notify-engagement', jsonb_build_object(
+      'postId', new.post_id,
+      'postAuthorId', post_author,
+      'engagementType', 'comment',
+      'actorName', coalesce(new.author, 'Someone')
+    ));
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.tg_notify_reaction()
+returns trigger language plpgsql security definer set search_path = '' as $$
+declare post_author uuid; actor_name text;
+begin
+  select user_id into post_author from public.posts where id = new.post_id;
+  if post_author is not null and post_author <> new.user_id then
+    select name into actor_name from public.profiles where id = new.user_id;
+    perform public.send_push_notification('notify-engagement', jsonb_build_object(
+      'postId', new.post_id,
+      'postAuthorId', post_author,
+      'engagementType', 'reaction',
+      'actorName', coalesce(actor_name, 'Someone')
+    ));
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists notify_new_post on public.posts;
+create trigger notify_new_post after insert on public.posts
+  for each row execute function public.tg_notify_new_post();
+
+drop trigger if exists notify_comment on public.comments;
+create trigger notify_comment after insert on public.comments
+  for each row execute function public.tg_notify_comment();
+
+drop trigger if exists notify_reaction on public.reactions;
+create trigger notify_reaction after insert on public.reactions
+  for each row execute function public.tg_notify_reaction();
+
 -- ============================================================
 -- Done! Your database is ready.
 -- ============================================================
