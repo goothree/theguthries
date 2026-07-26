@@ -347,6 +347,32 @@ drop trigger if exists notify_reaction on public.reactions;
 create trigger notify_reaction after insert on public.reactions
   for each row execute function public.tg_notify_reaction();
 
+-- 9. KEEP-ALIVE HEARTBEAT
+--    Supabase Free pauses projects without "a few requests each day". The
+--    GitHub Actions workflow (.github/workflows/supabase-keepalive.yml) calls
+--    public.keepalive() several times a day; each call is a real DB write.
+create table if not exists public.app_heartbeat (
+  id         int primary key default 1,
+  last_ping  timestamptz not null default now(),
+  count      bigint not null default 0,
+  constraint app_heartbeat_single_row check (id = 1)
+);
+insert into public.app_heartbeat (id) values (1) on conflict (id) do nothing;
+alter table public.app_heartbeat enable row level security;
+-- No policies: only the SECURITY DEFINER function below touches this table.
+
+create or replace function public.keepalive()
+returns timestamptz
+language sql
+security definer
+set search_path = public
+as $$
+  update public.app_heartbeat set last_ping = now(), count = count + 1 where id = 1
+  returning last_ping;
+$$;
+
+grant execute on function public.keepalive() to anon, authenticated;
+
 -- ============================================================
 -- Done! Your database is ready.
 -- ============================================================
