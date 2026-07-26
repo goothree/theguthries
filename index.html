@@ -6,7 +6,8 @@
   <title>The Guthrie's</title>
   <!-- Installable web app (Add to Home Screen). Relative paths so it works
        both at the site root and under a GitHub Pages subpath. -->
-  <meta name="theme-color" content="#2563eb" />
+  <meta name="theme-color" content="#2563eb" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/png" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
@@ -105,6 +106,30 @@
     .spinner { border: 3px solid var(--border); border-top-color: var(--brand); border-radius: 50%; width: 28px; height: 28px; animation: spin .7s linear infinite; margin: 40px auto; }
     @keyframes spin { to { transform: rotate(360deg); } }
     @media (max-width: 500px) { .auth-box { padding: 28px 20px; } .composer-actions { flex-direction: column; align-items: flex-start; } .btn-primary.post-btn { width: 100%; } }
+    /* Follow the OS light/dark appearance setting. */
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --brand:   #3b82f6;
+        --brand2:  #60a5fa;
+        --bg:      #0f172a;
+        --card:    #1e293b;
+        --text:    #e6edf6;
+        --muted:   #94a3b8;
+        --border:  #334155;
+        --red:     #f87171;
+        --shadow:  0 2px 12px rgba(0,0,0,.5);
+      }
+      #auth-screen { background: linear-gradient(135deg, #0b1220 0%, #0f172a 60%); }
+      input[type=text], input[type=email], input[type=password], textarea,
+      .comment-input-row input { background: #0f172a; color: var(--text); }
+      input::placeholder, textarea::placeholder { color: var(--muted); }
+      .btn-primary:hover, .comment-submit:hover { background: #2563eb; }
+      .btn-secondary:hover, .file-label:hover, .reaction-btn:hover { background: rgba(96,165,250,.15); }
+      .reaction-btn.reacted { background: rgba(96,165,250,.28); }
+      .msg.error { background: rgba(248,113,113,.18); color: #fca5a5; }
+      .msg.info  { background: rgba(74,222,128,.16); color: #86efac; }
+      header { box-shadow: 0 1px 6px rgba(0,0,0,.4); }
+    }
   </style>
 </head>
 <body>
