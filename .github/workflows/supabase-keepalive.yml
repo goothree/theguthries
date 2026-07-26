@@ -1,8 +1,8 @@
 name: Supabase keep-alive
 
 # Supabase Free-plan projects are paused after ~1 week of low database
-# activity. This workflow sends a small daily query to the project's REST
-# API so the database stays "active" and the project is never auto-paused.
+# activity. A single empty read per day proved too little, so this workflow
+# calls the public.keepalive() RPC (a real DB write) several times a day.
 #
 # Note: GitHub disables scheduled workflows after 60 days of *repository*
 # inactivity (no commits). If the repo goes untouched that long, re-enable
@@ -10,8 +10,8 @@ name: Supabase keep-alive
 
 on:
   schedule:
-    # Daily at 12:00 UTC.
-    - cron: "0 12 * * *"
+    # Every 6 hours (4x/day) — comfortably above "a few requests each day".
+    - cron: "0 */6 * * *"
   # Allow manual runs from the Actions tab.
   workflow_dispatch:
 
@@ -25,18 +25,21 @@ jobs:
       SUPABASE_URL: ${{ vars.SUPABASE_URL || 'https://otdpvabxlaygvxpqgwuk.supabase.co' }}
       SUPABASE_ANON: ${{ vars.SUPABASE_ANON || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im90ZHB2YWJ4bGF5Z3Z4cHFnd3VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4MTEwODgsImV4cCI6MjA4ODM4NzA4OH0.DpSiLf0cJ4CqUvS2efm4C7qw1YaVi-9ZY5DIWiJrEws' }}
     steps:
-      - name: Ping Supabase REST API
+      - name: Heartbeat (real DB write via keepalive RPC)
         run: |
           set -euo pipefail
           echo "Pinging $SUPABASE_URL ..."
-          status=$(curl -sS -o /tmp/body.txt -w "%{http_code}" \
-            "$SUPABASE_URL/rest/v1/posts?select=id&limit=1" \
-            -H "apikey: $SUPABASE_ANON" \
-            -H "Authorization: Bearer $SUPABASE_ANON")
-          echo "HTTP $status"
-          echo "Response: $(cat /tmp/body.txt)"
-          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
-            echo "::error::Keep-alive ping failed with HTTP $status"
-            exit 1
-          fi
-          echo "Keep-alive ping succeeded."
+          # Call the RPC a couple of times per run for margin.
+          for i in 1 2; do
+            status=$(curl -sS -o /tmp/body.txt -w "%{http_code}" \
+              -X POST "$SUPABASE_URL/rest/v1/rpc/keepalive" \
+              -H "apikey: $SUPABASE_ANON" \
+              -H "Authorization: Bearer $SUPABASE_ANON" \
+              -H "Content-Type: application/json")
+            echo "Attempt $i -> HTTP $status, response: $(cat /tmp/body.txt)"
+            if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+              echo "::error::Keep-alive failed with HTTP $status"
+              exit 1
+            fi
+          done
+          echo "Keep-alive heartbeat succeeded."
