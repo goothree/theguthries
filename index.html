@@ -68,7 +68,8 @@
     .file-label:hover { background: #eff6ff; }
     #photo-input { display: none; }
     .selected-file { font-size: .8rem; color: var(--muted); margin-top: 4px; }
-    #photo-preview { max-width: 100%; border-radius: 8px; margin-top: 10px; display: none; max-height: 220px; object-fit: cover; }
+    #photo-preview { display: none; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    #photo-preview img { width: 70px; height: 70px; object-fit: cover; border-radius: 8px; }
     .feed-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
     .feed-header h2 { font-size: 1.1rem; font-weight: 700; }
     .post-card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 20px; overflow: hidden; }
@@ -131,6 +132,20 @@
     .add-reaction-btn:hover { border-color: var(--brand2); color: var(--brand); background: #eff6ff; }
     .emoji-popover { position: fixed; display: none; z-index: 350; box-shadow: 0 8px 30px rgba(0,0,0,.28); border-radius: 12px; }
     .emoji-popover.open { display: block; }
+    .post-single-img { width: 100%; max-height: 400px; object-fit: cover; display: block; cursor: pointer; }
+    .post-collage { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+    .collage-tile { position: relative; overflow: hidden; cursor: pointer; aspect-ratio: 1 / 1; }
+    .collage-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .post-collage.n3 .collage-tile:first-child { grid-column: 1 / -1; aspect-ratio: 2 / 1; }
+    .collage-more { position: absolute; inset: 0; background: rgba(0,0,0,.5); color: #fff; font-size: 1.7rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+    .lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.93); z-index: 500; align-items: center; justify-content: center; }
+    .lightbox.open { display: flex; }
+    .lb-img { max-width: 92vw; max-height: 86vh; object-fit: contain; border-radius: 6px; user-select: none; }
+    .lb-close { position: absolute; top: 16px; right: 18px; background: rgba(0,0,0,.45); color: #fff; border: none; font-size: 1.3rem; width: 44px; height: 44px; border-radius: 50%; cursor: pointer; }
+    .lb-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,.45); color: #fff; border: none; font-size: 2rem; width: 48px; height: 48px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .lb-prev { left: 14px; } .lb-next { right: 14px; }
+    .lb-counter { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); color: #fff; font-size: .9rem; background: rgba(0,0,0,.45); padding: 5px 12px; border-radius: 20px; }
+    .lb-nav[hidden], .lb-counter[hidden] { display: none; }
     @media (max-width: 500px) { .auth-box { padding: 28px 20px; } .composer-actions { flex-direction: column; align-items: flex-start; } .btn-primary.post-btn { width: 100%; } }
     /* Follow the OS light/dark appearance setting. */
     @media (prefers-color-scheme: dark) {
@@ -221,11 +236,11 @@
       <div class="field">
         <textarea class="post-body" id="post-text" placeholder="What's happening in the family? Share a story, update, or memory&hellip;"></textarea>
       </div>
-      <img id="photo-preview" src="" alt="preview" />
+      <div id="photo-preview"></div>
       <div class="composer-actions">
         <div>
-          <label class="file-label" for="photo-input">&#128247; Add Photo</label>
-          <input type="file" id="photo-input" accept="image/*" onchange="previewPhoto(event)" />
+          <label class="file-label" for="photo-input">&#128247; Add Photos</label>
+          <input type="file" id="photo-input" accept="image/*" multiple onchange="previewPhotos(event)" />
           <div class="selected-file" id="file-name"></div>
         </div>
         <button class="btn btn-primary post-btn" onclick="submitPost()">Post to Family</button>
@@ -235,6 +250,13 @@
 
   <div id="toast" class="toast"></div>
   <div id="emoji-popover" class="emoji-popover"><emoji-picker></emoji-picker></div>
+  <div id="lightbox" class="lightbox" onclick="if(event.target===this)closeLightbox()">
+    <button class="lb-close" onclick="closeLightbox()" aria-label="Close">&#10005;</button>
+    <button class="lb-nav lb-prev" onclick="lightboxPrev(event)" aria-label="Previous">&#8249;</button>
+    <img id="lightbox-img" class="lb-img" src="" alt="photo" />
+    <button class="lb-nav lb-next" onclick="lightboxNext(event)" aria-label="Next">&#8250;</button>
+    <div class="lb-counter" id="lightbox-counter"></div>
+  </div>
 </div>
 
 <script>
@@ -377,24 +399,31 @@ async function handleSignup(e) {
   btn.textContent='Create Account'; btn.disabled=false;
 }
 async function handleSignOut() { await sb.auth.signOut(); }
-function previewPhoto(e) {
-  const file=e.target.files[0]; if(!file) return;
-  document.getElementById('file-name').textContent=file.name;
-  const reader=new FileReader(); reader.onload=ev=>{const img=document.getElementById('photo-preview');img.src=ev.target.result;img.style.display='block';}; reader.readAsDataURL(file);
+function previewPhotos(e) {
+  const files=Array.from(e.target.files||[]);
+  const prev=document.getElementById('photo-preview');
+  prev.innerHTML='';
+  if(!files.length){ prev.style.display='none'; document.getElementById('file-name').textContent=''; return; }
+  document.getElementById('file-name').textContent=files.length+(files.length===1?' photo selected':' photos selected');
+  prev.style.display='flex';
+  files.forEach(file=>{ const reader=new FileReader(); reader.onload=ev=>{const img=document.createElement('img');img.src=ev.target.result;prev.appendChild(img);}; reader.readAsDataURL(file); });
 }
 async function submitPost() {
-  const text=document.getElementById('post-text').value.trim(); const file=document.getElementById('photo-input').files[0];
-  if (!text&&!file) { showMsg('post-msg','Please write something or add a photo!','error'); return; } hideMsg('post-msg');
-  let photo_url=null;
-  if (file) {
-    const ext=file.name.split('.').pop(); const path=`${currentUser.id}/${Date.now()}.${ext}`;
+  const text=document.getElementById('post-text').value.trim(); const files=Array.from(document.getElementById('photo-input').files||[]);
+  if (!text&&!files.length) { showMsg('post-msg','Please write something or add a photo!','error'); return; } hideMsg('post-msg');
+  const postBtn=document.querySelector('#composer-modal .post-btn'); if(postBtn){postBtn.disabled=true; postBtn.textContent=files.length>1?'Uploading…':'Posting…';}
+  let photo_urls=[];
+  for (const file of files) {
+    const ext=file.name.split('.').pop(); const path=`${currentUser.id}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
     const { error:upErr } = await sb.storage.from('family-photos').upload(path,file);
-    if (upErr) { showMsg('post-msg','Photo upload failed: '+upErr.message,'error'); return; }
-    const { data:urlData } = sb.storage.from('family-photos').getPublicUrl(path); photo_url=urlData.publicUrl;
+    if (upErr) { showMsg('post-msg','Photo upload failed: '+upErr.message,'error'); if(postBtn){postBtn.disabled=false;postBtn.textContent='Post to Family';} return; }
+    const { data:urlData } = sb.storage.from('family-photos').getPublicUrl(path); photo_urls.push(urlData.publicUrl);
   }
-  const { error } = await sb.from('posts').insert({ user_id:currentUser.id, author:currentProfile?.name||currentUser.email, body:text, photo_url });
+  const { error } = await sb.from('posts').insert({ user_id:currentUser.id, author:currentProfile?.name||currentUser.email, body:text, photo_url:photo_urls[0]||null, photo_urls:photo_urls.length?photo_urls:null });
+  if (postBtn){postBtn.disabled=false;postBtn.textContent='Post to Family';}
   if (error) { showMsg('post-msg',error.message,'error'); return; }
   document.getElementById('post-text').value=''; document.getElementById('photo-input').value='';
+  document.getElementById('photo-preview').innerHTML=''; document.getElementById('photo-preview').style.display='none';
   document.getElementById('file-name').textContent=''; document.getElementById('photo-preview').style.display='none';
   hideMsg('post-msg');
   closeComposer();
@@ -424,15 +453,67 @@ function canDeletePost(p) {
   const isOwn = p.user_id === currentUser?.id;
   return isAdminUser() || (isOwn && isFamilyMember());
 }
+let feedImages = {};
+function renderCollage(postId, imgs) {
+  if (!imgs.length) return '';
+  if (imgs.length === 1) {
+    return `<img class="post-single-img" src="${escHtml(imgs[0])}" alt="photo" loading="lazy" onclick="openLightbox('${postId}',0)" />`;
+  }
+  const shown = imgs.slice(0, 4);
+  const extra = imgs.length - 4;
+  const tiles = shown.map((url, i) => {
+    const overlay = (i === 3 && extra > 0) ? `<span class="collage-more">+${extra}</span>` : '';
+    return `<div class="collage-tile" onclick="openLightbox('${postId}',${i})"><img src="${escHtml(url)}" alt="photo" loading="lazy" />${overlay}</div>`;
+  }).join('');
+  return `<div class="post-collage n${Math.min(imgs.length, 4)}">${tiles}</div>`;
+}
+let lbImages = [], lbIndex = 0;
+function openLightbox(postId, index) {
+  const imgs = feedImages[postId] || [];
+  if (!imgs.length) return;
+  lbImages = imgs; lbIndex = index || 0;
+  renderLightbox();
+  document.getElementById('lightbox').classList.add('open');
+}
+function renderLightbox() {
+  document.getElementById('lightbox-img').src = lbImages[lbIndex];
+  const multi = lbImages.length > 1;
+  const counter = document.getElementById('lightbox-counter');
+  counter.textContent = multi ? `${lbIndex + 1} / ${lbImages.length}` : '';
+  counter.hidden = !multi;
+  document.querySelector('.lb-prev').hidden = !multi;
+  document.querySelector('.lb-next').hidden = !multi;
+}
+function lightboxPrev(e) { if (e) e.stopPropagation(); if (!lbImages.length) return; lbIndex = (lbIndex - 1 + lbImages.length) % lbImages.length; renderLightbox(); }
+function lightboxNext(e) { if (e) e.stopPropagation(); if (!lbImages.length) return; lbIndex = (lbIndex + 1) % lbImages.length; renderLightbox(); }
+function closeLightbox() { document.getElementById('lightbox').classList.remove('open'); }
+document.addEventListener('keydown', (e) => {
+  if (!document.getElementById('lightbox').classList.contains('open')) return;
+  if (e.key === 'ArrowLeft') lightboxPrev();
+  else if (e.key === 'ArrowRight') lightboxNext();
+  else if (e.key === 'Escape') closeLightbox();
+});
+(function () {
+  let sx = null;
+  const isOpen = () => document.getElementById('lightbox').classList.contains('open');
+  document.addEventListener('touchstart', (e) => { if (isOpen()) sx = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (sx === null || !isOpen()) return;
+    const dx = e.changedTouches[0].clientX - sx; sx = null;
+    if (Math.abs(dx) > 40) { dx < 0 ? lightboxNext() : lightboxPrev(); }
+  }, { passive: true });
+})();
 function renderPost(p,reactions,comments) {
   const date=new Date(p.created_at).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
   const initial=(p.author||'?').charAt(0).toUpperCase();
   const isOwn=p.user_id===currentUser?.id;
-  const img=p.photo_url?`<img src="${escHtml(p.photo_url)}" alt="photo" loading="lazy" />`:'';
+  const imgs=(p.photo_urls&&p.photo_urls.length)?p.photo_urls:(p.photo_url?[p.photo_url]:[]);
+  feedImages[p.id]=imgs;
+  const media=renderCollage(p.id,imgs);
   const body=p.body?`<p class="post-text">${escHtml(p.body)}</p>`:'';
   const delLabel=(!isOwn&&isAdminUser())?'Delete post (admin)':'Delete post';
   const del=canDeletePost(p)?`<button class="post-delete" onclick="deletePost('${p.id}')">${delLabel}</button>`:'';
-  return `<div class="post-card" id="post-${p.id}">${img}<div class="post-body-content"><div class="post-meta"><div class="post-avatar">${initial}</div><div><div class="post-author">${escHtml(p.author||'Family Member')}</div><div class="post-date">${date}</div></div></div>${body}${del}</div><div class="comments-section">${renderComments(p.id,comments)}${renderReactions(p.id,reactions)}<div class="comment-input-row"><button class="add-reaction-btn" onclick="openEmojiPicker(event,'${p.id}')" title="Add a reaction" aria-label="Add a reaction">+</button><input type="text" id="comment-input-${p.id}" placeholder="Add a comment…" onkeydown="if(event.key==='Enter')addComment('${p.id}')" /><button class="comment-submit" onclick="addComment('${p.id}')">Post</button></div></div></div>`;
+  return `<div class="post-card" id="post-${p.id}">${media}<div class="post-body-content"><div class="post-meta"><div class="post-avatar">${initial}</div><div><div class="post-author">${escHtml(p.author||'Family Member')}</div><div class="post-date">${date}</div></div></div>${body}${del}</div><div class="comments-section">${renderComments(p.id,comments)}${renderReactions(p.id,reactions)}<div class="comment-input-row"><button class="add-reaction-btn" onclick="openEmojiPicker(event,'${p.id}')" title="Add a reaction" aria-label="Add a reaction">+</button><input type="text" id="comment-input-${p.id}" placeholder="Add a comment…" onkeydown="if(event.key==='Enter')addComment('${p.id}')" /><button class="comment-submit" onclick="addComment('${p.id}')">Post</button></div></div></div>`;
 }
 function renderReactions(postId,reactions) {
   const byEmoji={};
@@ -524,9 +605,11 @@ async function deleteComment(commentId) {
 }
 async function deletePost(id) {
   if (!confirm('Delete this post?')) return;
-  const { data:post } = await sb.from('posts').select('photo_url').eq('id',id).single();
+  const { data:post } = await sb.from('posts').select('photo_url,photo_urls').eq('id',id).single();
   await sb.from('posts').delete().eq('id',id);
-  if (post?.photo_url) { const path=post.photo_url.split('/family-photos/')[1]; if(path) await sb.storage.from('family-photos').remove([path]); }
+  const urls=(post?.photo_urls&&post.photo_urls.length)?post.photo_urls:(post?.photo_url?[post.photo_url]:[]);
+  const paths=urls.map(u=>u.split('/family-photos/')[1]).filter(Boolean);
+  if (paths.length) await sb.storage.from('family-photos').remove(paths);
   document.getElementById(`post-${id}`)?.remove();
 }
 function showMsg(id,text,type) { const el=document.getElementById(id); el.textContent=text; el.className=`msg ${type}`; }

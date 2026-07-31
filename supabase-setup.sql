@@ -18,9 +18,12 @@ create table if not exists public.posts (
   user_id    uuid references auth.users(id) on delete cascade,
   author     text not null,
   body       text,
-  photo_url  text,
+  photo_url  text,        -- first/legacy image (kept for backward compatibility)
+  photo_urls text[],      -- all images in the post (multi-image collage)
   created_at timestamptz default now()
 );
+-- For projects created before multi-image support:
+alter table public.posts add column if not exists photo_urls text[];
 
 -- 3. ROW LEVEL SECURITY
 --    Only signed-in family members can see & create posts
