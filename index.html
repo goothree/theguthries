@@ -105,6 +105,25 @@
     .empty-feed { text-align: center; padding: 60px 20px; color: var(--muted); font-size: .95rem; }
     .spinner { border: 3px solid var(--border); border-top-color: var(--brand); border-radius: 50%; width: 28px; height: 28px; animation: spin .7s linear infinite; margin: 40px auto; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .icon-btn { width: 38px; height: 38px; border-radius: 50%; border: none; background: var(--brand); color: #fff; font-size: 1.5rem; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background .2s; }
+    .icon-btn:hover { background: #1d4ed8; }
+    .user-menu { position: relative; }
+    .user-menu-trigger { display: flex; align-items: center; gap: 8px; background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 8px; color: var(--text); font-family: inherit; }
+    .user-menu-trigger:hover { background: rgba(0,0,0,.05); }
+    .caret { font-size: .7rem; color: var(--muted); }
+    .user-dropdown { position: absolute; right: 0; top: calc(100% + 6px); background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); min-width: 190px; padding: 6px; display: none; z-index: 200; }
+    .user-dropdown.open { display: block; }
+    .user-dropdown button { display: block; width: 100%; text-align: left; background: none; border: none; padding: 10px 12px; font-size: .9rem; font-weight: 600; color: var(--text); cursor: pointer; border-radius: 6px; font-family: inherit; }
+    .user-dropdown button:hover { background: rgba(37,99,235,.10); }
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 300; align-items: flex-start; justify-content: center; padding: 60px 20px; overflow-y: auto; }
+    .modal-overlay.open { display: flex; }
+    .modal-composer { width: 100%; max-width: 640px; margin: 0; }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .modal-head h2 { margin-bottom: 0; }
+    .modal-close { background: none; border: none; font-size: 1.1rem; color: var(--muted); cursor: pointer; padding: 4px 8px; border-radius: 6px; line-height: 1; }
+    .modal-close:hover { color: var(--text); background: rgba(0,0,0,.06); }
+    .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px); background: var(--text); color: var(--card); padding: 12px 20px; border-radius: 10px; font-size: .9rem; font-weight: 600; box-shadow: 0 4px 20px rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; z-index: 400; max-width: 90vw; text-align: center; }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
     @media (max-width: 500px) { .auth-box { padding: 28px 20px; } .composer-actions { flex-direction: column; align-items: flex-start; } .btn-primary.post-btn { width: 100%; } }
     /* Follow the OS light/dark appearance setting. */
     @media (prefers-color-scheme: dark) {
@@ -123,8 +142,9 @@
       input[type=text], input[type=email], input[type=password], textarea,
       .comment-input-row input { background: #0f172a; color: var(--text); }
       input::placeholder, textarea::placeholder { color: var(--muted); }
-      .btn-primary:hover, .comment-submit:hover { background: #2563eb; }
+      .btn-primary:hover, .comment-submit:hover, .icon-btn:hover { background: #2563eb; }
       .btn-secondary:hover, .file-label:hover, .reaction-btn:hover { background: rgba(96,165,250,.15); }
+      .user-menu-trigger:hover, .modal-close:hover { background: rgba(255,255,255,.07); }
       .reaction-btn.reacted { background: rgba(96,165,250,.28); }
       .msg.error { background: rgba(248,113,113,.18); color: #fca5a5; }
       .msg.info  { background: rgba(74,222,128,.16); color: #86efac; }
@@ -163,16 +183,33 @@
     <div class="header-inner">
       <span class="site-name">The Guthrie's</span>
       <div class="user-info">
-        <div class="avatar" id="header-avatar">?</div>
-        <span class="user-name" id="header-name">Loading&hellip;</span>
-        <button class="btn btn-secondary btn-sm" id="enable-notif-btn" onclick="enableNotifications()" style="display:none">&#128276; Notifications</button>
-        <button class="btn btn-secondary btn-sm" onclick="handleSignOut()">Sign Out</button>
+        <button class="icon-btn" id="new-post-btn" onclick="openComposer()" title="New post" aria-label="New post">+</button>
+        <div class="user-menu">
+          <button class="user-menu-trigger" onclick="toggleUserMenu(event)" aria-haspopup="true">
+            <div class="avatar" id="header-avatar">?</div>
+            <span class="user-name" id="header-name">Loading&hellip;</span>
+            <span class="caret">&#9662;</span>
+          </button>
+          <div class="user-dropdown" id="user-dropdown">
+            <button id="enable-notif-btn" onclick="enableNotifications()" style="display:none">&#128276; Enable notifications</button>
+            <button onclick="handleSignOut()">Sign Out</button>
+          </div>
+        </div>
       </div>
     </div>
   </header>
   <main>
-    <div class="composer">
-      <h2>Share Something</h2>
+    <div class="feed-header"><h2>Family Feed</h2></div>
+    <div id="feed"><div class="spinner"></div></div>
+  </main>
+
+  <!-- Compose modal, opened via the + button in the header. -->
+  <div id="composer-modal" class="modal-overlay" onclick="if(event.target===this)closeComposer()">
+    <div class="composer modal-composer">
+      <div class="modal-head">
+        <h2>Share Something</h2>
+        <button class="modal-close" onclick="closeComposer()" aria-label="Close">&#10005;</button>
+      </div>
       <div id="post-msg" class="msg"></div>
       <div class="field">
         <textarea class="post-body" id="post-text" placeholder="What's happening in the family? Share a story, update, or memory&hellip;"></textarea>
@@ -187,9 +224,9 @@
         <button class="btn btn-primary post-btn" onclick="submitPost()">Post to Family</button>
       </div>
     </div>
-    <div class="feed-header"><h2>Family Feed</h2></div>
-    <div id="feed"><div class="spinner"></div></div>
-  </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
 </div>
 
 <script>
@@ -249,15 +286,34 @@ async function setupNotifUI() {
       await storeSubscription(existing);
       btn.style.display = 'none';
     } else {
-      btn.style.display = 'inline-flex';
+      btn.style.display = 'block';
     }
-  } catch (e) { btn.style.display = 'inline-flex'; }
+  } catch (e) { btn.style.display = 'block'; }
+}
+function openComposer() {
+  closeUserMenu();
+  document.getElementById('composer-modal').classList.add('open');
+  setTimeout(() => { const t = document.getElementById('post-text'); if (t) t.focus(); }, 50);
+}
+function closeComposer() { document.getElementById('composer-modal').classList.remove('open'); }
+function toggleUserMenu(e) { if (e) e.stopPropagation(); document.getElementById('user-dropdown').classList.toggle('open'); }
+function closeUserMenu() { const d = document.getElementById('user-dropdown'); if (d) d.classList.remove('open'); }
+document.addEventListener('click', (e) => {
+  const menu = document.querySelector('.user-menu');
+  if (menu && !menu.contains(e.target)) closeUserMenu();
+});
+function toast(text) {
+  const t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = text; t.classList.add('show');
+  clearTimeout(t._timer); t._timer = setTimeout(() => t.classList.remove('show'), 3200);
 }
 async function enableNotifications() {
-  if (!pushSupported()) { showMsg('post-msg', 'Notifications aren\u2019t supported on this device/browser. On iPhone, add the site to your Home Screen first.', 'error'); return; }
+  closeUserMenu();
+  if (!pushSupported()) { toast('Notifications aren\u2019t supported here. On iPhone, add the site to your Home Screen first.'); return; }
   try {
     const perm = await Notification.requestPermission();
-    if (perm !== 'granted') { showMsg('post-msg', 'Notifications weren\u2019t enabled (permission not granted).', 'error'); return; }
+    if (perm !== 'granted') { toast('Notifications weren\u2019t enabled (permission not granted).'); return; }
     const reg = await navigator.serviceWorker.ready;
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
@@ -265,9 +321,9 @@ async function enableNotifications() {
     }
     await storeSubscription(sub);
     document.getElementById('enable-notif-btn').style.display = 'none';
-    showMsg('post-msg', 'Notifications enabled on this device!', 'info');
+    toast('Notifications enabled on this device!');
   } catch (e) {
-    showMsg('post-msg', 'Could not enable notifications: ' + (e.message || e), 'error');
+    toast('Could not enable notifications: ' + (e.message || e));
   }
 }
 async function storeSubscription(sub) {
@@ -333,6 +389,9 @@ async function submitPost() {
   if (error) { showMsg('post-msg',error.message,'error'); return; }
   document.getElementById('post-text').value=''; document.getElementById('photo-input').value='';
   document.getElementById('file-name').textContent=''; document.getElementById('photo-preview').style.display='none';
+  hideMsg('post-msg');
+  closeComposer();
+  toast('Posted to the family!');
   loadFeed();
 }
 async function loadFeed() {
