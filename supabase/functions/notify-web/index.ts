@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
     const { data: subs, error } = await query;
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
 
-    const notification = JSON.stringify({ title: "The Guthrie's \uD83C\uDFE1", body, url: "./", postId });
+    const notification = JSON.stringify({ title: "FamJam \uD83C\uDFE1", body, url: "./", postId });
 
     let sent = 0;
     await Promise.all((subs ?? []).map(async (s) => {

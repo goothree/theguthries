@@ -1,6 +1,6 @@
 {
-  "name": "The Guthrie's",
-  "short_name": "Guthrie's",
+  "name": "FamJam",
+  "short_name": "FamJam",
   "description": "A private space for family photos & stories.",
   "start_url": "./",
   "scope": "./",
