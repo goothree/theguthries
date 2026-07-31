@@ -16,6 +16,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="The Guthrie's" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -124,6 +125,12 @@
     .modal-close:hover { color: var(--text); background: rgba(0,0,0,.06); }
     .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px); background: var(--text); color: var(--card); padding: 12px 20px; border-radius: 10px; font-size: .9rem; font-weight: 600; box-shadow: 0 4px 20px rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; z-index: 400; max-width: 90vw; text-align: center; }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .reactions-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 10px; }
+    .reactions-row:empty { display: none; }
+    .add-reaction-btn { flex-shrink: 0; width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid var(--border); background: none; color: var(--muted); font-size: 1.3rem; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: all .15s; }
+    .add-reaction-btn:hover { border-color: var(--brand2); color: var(--brand); background: #eff6ff; }
+    .emoji-popover { position: fixed; display: none; z-index: 350; box-shadow: 0 8px 30px rgba(0,0,0,.28); border-radius: 12px; }
+    .emoji-popover.open { display: block; }
     @media (max-width: 500px) { .auth-box { padding: 28px 20px; } .composer-actions { flex-direction: column; align-items: flex-start; } .btn-primary.post-btn { width: 100%; } }
     /* Follow the OS light/dark appearance setting. */
     @media (prefers-color-scheme: dark) {
@@ -143,7 +150,7 @@
       .comment-input-row input { background: #0f172a; color: var(--text); }
       input::placeholder, textarea::placeholder { color: var(--muted); }
       .btn-primary:hover, .comment-submit:hover, .icon-btn:hover { background: #2563eb; }
-      .btn-secondary:hover, .file-label:hover, .reaction-btn:hover { background: rgba(96,165,250,.15); }
+      .btn-secondary:hover, .file-label:hover, .reaction-btn:hover, .add-reaction-btn:hover { background: rgba(96,165,250,.15); }
       .user-menu-trigger:hover, .modal-close:hover { background: rgba(255,255,255,.07); }
       .reaction-btn.reacted { background: rgba(96,165,250,.28); }
       .msg.error { background: rgba(248,113,113,.18); color: #fca5a5; }
@@ -227,14 +234,13 @@
   </div>
 
   <div id="toast" class="toast"></div>
+  <div id="emoji-popover" class="emoji-popover"><emoji-picker></emoji-picker></div>
 </div>
 
 <script>
 const SUPABASE_URL  = 'https://otdpvabxlaygvxpqgwuk.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im90ZHB2YWJ4bGF5Z3Z4cHFnd3VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4MTEwODgsImV4cCI6MjA4ODM4NzA4OH0.DpSiLf0cJ4CqUvS2efm4C7qw1YaVi-9ZY5DIWiJrEws';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-const EMOJIS = ['\u2764\ufe0f','\ud83d\ude02','\ud83d\ude2e','\ud83d\ude22','\ud83d\udc4f','\ud83d\udc4d','\ud83e\udd26'];
-
 // Deletion permissions:
 //  - Family members (any @theguthries.org address) can delete their own posts.
 //  - The admin (michael@theguthries.org) can delete any post.
@@ -252,6 +258,7 @@ if ('serviceWorker' in navigator) {
 let currentUser = null, currentProfile = null;
 
 async function init() {
+  setupEmojiPicker();
   const { data: { session } } = await sb.auth.getSession();
   if (session) { currentUser = session.user; await loadProfile(); showApp(); } else showAuth();
   sb.auth.onAuthStateChange(async (event, session) => {
@@ -425,24 +432,69 @@ function renderPost(p,reactions,comments) {
   const body=p.body?`<p class="post-text">${escHtml(p.body)}</p>`:'';
   const delLabel=(!isOwn&&isAdminUser())?'Delete post (admin)':'Delete post';
   const del=canDeletePost(p)?`<button class="post-delete" onclick="deletePost('${p.id}')">${delLabel}</button>`:'';
-  return `<div class="post-card" id="post-${p.id}">${img}<div class="post-body-content"><div class="post-meta"><div class="post-avatar">${initial}</div><div><div class="post-author">${escHtml(p.author||'Family Member')}</div><div class="post-date">${date}</div></div></div>${body}${del}</div>${renderReactions(p.id,reactions)}<div class="comments-section">${renderComments(p.id,comments)}<div class="comment-input-row"><input type="text" id="comment-input-${p.id}" placeholder="Add a comment…" onkeydown="if(event.key==='Enter')addComment('${p.id}')" /><button class="comment-submit" onclick="addComment('${p.id}')">Post</button></div></div></div>`;
+  return `<div class="post-card" id="post-${p.id}">${img}<div class="post-body-content"><div class="post-meta"><div class="post-avatar">${initial}</div><div><div class="post-author">${escHtml(p.author||'Family Member')}</div><div class="post-date">${date}</div></div></div>${body}${del}</div><div class="comments-section">${renderComments(p.id,comments)}${renderReactions(p.id,reactions)}<div class="comment-input-row"><button class="add-reaction-btn" onclick="openEmojiPicker(event,'${p.id}')" title="Add a reaction" aria-label="Add a reaction">+</button><input type="text" id="comment-input-${p.id}" placeholder="Add a comment…" onkeydown="if(event.key==='Enter')addComment('${p.id}')" /><button class="comment-submit" onclick="addComment('${p.id}')">Post</button></div></div></div>`;
 }
 function renderReactions(postId,reactions) {
-  const buttons=EMOJIS.map(emoji=>{
-    const matches=reactions.filter(r=>r.emoji===emoji); const count=matches.length;
-    const reacted=matches.some(r=>r.user_id===currentUser?.id);
-    const rid=reacted?matches.find(r=>r.user_id===currentUser?.id)?.id:'';
-    const cls=reacted?'reaction-btn reacted':'reaction-btn';
-    const cnt=count>0?`<span class="reaction-count">${count}</span>`:'';
-    return `<button class="${cls}" onclick="toggleReaction('${postId}','${emoji}','${rid}')">${emoji}${cnt}</button>`;
+  const byEmoji={};
+  reactions.forEach(r=>{ (byEmoji[r.emoji]=byEmoji[r.emoji]||[]).push(r); });
+  const chips=Object.keys(byEmoji).map(emoji=>{
+    const matches=byEmoji[emoji]; const count=matches.length;
+    const mine=matches.find(r=>r.user_id===currentUser?.id);
+    const cls=mine?'reaction-btn reacted':'reaction-btn';
+    return `<button class="${cls}" onclick="toggleReaction('${postId}','${emoji}','${mine?mine.id:''}')">${emoji}<span class="reaction-count">${count}</span></button>`;
   }).join('');
-  return `<div class="reactions-bar" id="reactions-${postId}">${buttons}</div>`;
+  return `<div class="reactions-row" id="reactions-${postId}">${chips}</div>`;
 }
 async function toggleReaction(postId,emoji,existingId) {
   if (existingId) { await sb.from('reactions').delete().eq('id',existingId); }
   else { await sb.from('reactions').insert({post_id:postId,user_id:currentUser.id,emoji}); }
+  await refreshReactions(postId);
+}
+async function refreshReactions(postId) {
   const { data } = await sb.from('reactions').select('*').eq('post_id',postId);
-  document.getElementById(`reactions-${postId}`).outerHTML=renderReactions(postId,data||[]);
+  const el = document.getElementById(`reactions-${postId}`);
+  if (el) el.outerHTML = renderReactions(postId, data||[]);
+}
+let emojiTargetPostId = null;
+async function addReaction(postId, emoji) {
+  // Add the reaction if the user hasn't already used this emoji here.
+  const { data: existing } = await sb.from('reactions').select('id')
+    .eq('post_id',postId).eq('user_id',currentUser.id).eq('emoji',emoji).maybeSingle();
+  if (!existing) { await sb.from('reactions').insert({post_id:postId,user_id:currentUser.id,emoji}); }
+  await refreshReactions(postId);
+}
+function openEmojiPicker(event, postId) {
+  event.stopPropagation();
+  emojiTargetPostId = postId;
+  const pop = document.getElementById('emoji-popover');
+  pop.classList.add('open');
+  const r = event.currentTarget.getBoundingClientRect();
+  const W = 340, H = 400;
+  let left = Math.max(8, Math.min(r.left, window.innerWidth - W - 8));
+  let top = r.bottom + 6;
+  if (top + H > window.innerHeight) top = Math.max(8, r.top - H - 6);
+  pop.style.left = left + 'px'; pop.style.top = top + 'px';
+}
+function hideEmojiPopover() {
+  const pop = document.getElementById('emoji-popover');
+  if (pop) pop.classList.remove('open');
+  emojiTargetPostId = null;
+}
+function setupEmojiPicker() {
+  const pop = document.getElementById('emoji-popover');
+  const picker = pop && pop.querySelector('emoji-picker');
+  if (!picker || picker.dataset.ready) return;
+  picker.dataset.ready = '1';
+  const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  picker.classList.add(dark ? 'dark' : 'light');
+  picker.addEventListener('emoji-click', (e) => {
+    const emoji = e.detail && e.detail.unicode;
+    if (emoji && emojiTargetPostId) addReaction(emojiTargetPostId, emoji);
+    hideEmojiPopover();
+  });
+  document.addEventListener('click', (e) => {
+    if (pop.classList.contains('open') && !pop.contains(e.target) && !(e.target.closest && e.target.closest('.add-reaction-btn'))) hideEmojiPopover();
+  });
 }
 function renderComments(postId,comments) {
   const items=comments.map(c=>{
