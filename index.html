@@ -632,9 +632,12 @@ const AVATAR_COLORS = [
 ];
 function avatarColor(key) {
   const s = String(key || '?');
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return AVATAR_COLORS[(h >>> 0) % AVATAR_COLORS.length];
 }
 init();
 </script>
