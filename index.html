@@ -55,11 +55,12 @@
     .msg.info  { background: #e6f4e2; color: #2d6a22; display: block; }
     #app-screen { display: none; }
     header { background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; box-shadow: 0 1px 6px rgba(0,0,0,.06); }
-    .header-inner { max-width: 700px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; }
+    .header-inner { max-width: 700px; margin: 0 auto; padding: 8px 20px; display: flex; align-items: center; justify-content: space-between; }
     .site-name { font-size: 1.3rem; font-weight: 700; color: var(--brand); }
-    .site-logo { height: 48px; width: auto; display: block; }
+    .site-logo { height: 56px; width: auto; display: block; }
     @media (max-width: 480px) {
-      .site-logo { height: 40px; }
+      .header-inner { padding: 6px 14px; }
+      .site-logo { height: 48px; }
       .auth-logo { height: 60px; }
     }
     .user-info { display: flex; align-items: center; gap: 12px; }
