@@ -64,7 +64,7 @@
       .auth-logo { height: 60px; }
     }
     .user-info { display: flex; align-items: center; gap: 12px; }
-    .avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--brand); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .95rem; }
+    .avatar { width: 36px; height: 36px; border-radius: 50%; background: #64748b; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .95rem; }
     .user-name { font-size: .9rem; font-weight: 600; }
     main { max-width: 700px; margin: 0 auto; padding: 28px 20px 60px; }
     .composer { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; margin-bottom: 28px; }
@@ -81,7 +81,7 @@
     .post-card img { width: 100%; max-height: 400px; object-fit: cover; display: block; }
     .post-body-content { padding: 18px 20px 0; }
     .post-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-    .post-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--brand2); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .8rem; flex-shrink: 0; }
+    .post-avatar { width: 32px; height: 32px; border-radius: 50%; background: #64748b; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .8rem; flex-shrink: 0; }
     .post-author { font-weight: 700; font-size: .9rem; }
     .post-date { font-size: .8rem; color: var(--muted); }
     .post-text { line-height: 1.65; font-size: .97rem; white-space: pre-wrap; margin-bottom: 4px; }
@@ -97,7 +97,7 @@
     .comments-list { margin-bottom: 10px; }
     .comment-item { display: flex; gap: 8px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--border); }
     .comment-item:last-child { border-bottom: none; }
-    .comment-avatar { width: 26px; height: 26px; border-radius: 50%; background: var(--brand2); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .7rem; flex-shrink: 0; margin-top: 1px; }
+    .comment-avatar { width: 26px; height: 26px; border-radius: 50%; background: #64748b; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .7rem; flex-shrink: 0; margin-top: 1px; }
     .comment-body { flex: 1; }
     .comment-author { font-weight: 700; font-size: .82rem; }
     .comment-text { font-size: .88rem; line-height: 1.5; }
@@ -301,7 +301,9 @@ function showApp() {
   document.getElementById('auth-screen').style.display='none'; document.getElementById('app-screen').style.display='block';
   const name = currentProfile?.name || currentUser.email;
   document.getElementById('header-name').textContent = name;
-  document.getElementById('header-avatar').textContent = name.charAt(0).toUpperCase();
+  const headerAvatar = document.getElementById('header-avatar');
+  headerAvatar.textContent = name.charAt(0).toUpperCase();
+  headerAvatar.style.background = avatarColor(currentUser.id || name);
   loadFeed();
   setupNotifUI();
 }
@@ -510,6 +512,7 @@ document.addEventListener('keydown', (e) => {
 function renderPost(p,reactions,comments) {
   const date=new Date(p.created_at).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
   const initial=(p.author||'?').charAt(0).toUpperCase();
+  const color=avatarColor(p.user_id||p.author);
   const isOwn=p.user_id===currentUser?.id;
   const imgs=(p.photo_urls&&p.photo_urls.length)?p.photo_urls:(p.photo_url?[p.photo_url]:[]);
   feedImages[p.id]=imgs;
@@ -517,7 +520,7 @@ function renderPost(p,reactions,comments) {
   const body=p.body?`<p class="post-text">${escHtml(p.body)}</p>`:'';
   const delLabel=(!isOwn&&isAdminUser())?'Delete post (admin)':'Delete post';
   const del=canDeletePost(p)?`<button class="post-delete" onclick="deletePost('${p.id}')">${delLabel}</button>`:'';
-  return `<div class="post-card" id="post-${p.id}">${media}<div class="post-body-content"><div class="post-meta"><div class="post-avatar">${initial}</div><div><div class="post-author">${escHtml(p.author||'Family Member')}</div><div class="post-date">${date}</div></div></div>${body}${del}</div><div class="comments-section">${renderComments(p.id,comments)}${renderReactions(p.id,reactions)}<div class="comment-input-row"><button class="add-reaction-btn" onclick="openEmojiPicker(event,'${p.id}')" title="Add a reaction" aria-label="Add a reaction">+</button><input type="text" id="comment-input-${p.id}" placeholder="Add a comment…" onkeydown="if(event.key==='Enter')addComment('${p.id}')" /><button class="comment-submit" onclick="addComment('${p.id}')">Post</button></div></div></div>`;
+  return `<div class="post-card" id="post-${p.id}">${media}<div class="post-body-content"><div class="post-meta"><div class="post-avatar" style="background:${color}">${initial}</div><div><div class="post-author">${escHtml(p.author||'Family Member')}</div><div class="post-date">${date}</div></div></div>${body}${del}</div><div class="comments-section">${renderComments(p.id,comments)}${renderReactions(p.id,reactions)}<div class="comment-input-row"><button class="add-reaction-btn" onclick="openEmojiPicker(event,'${p.id}')" title="Add a reaction" aria-label="Add a reaction">+</button><input type="text" id="comment-input-${p.id}" placeholder="Add a comment…" onkeydown="if(event.key==='Enter')addComment('${p.id}')" /><button class="comment-submit" onclick="addComment('${p.id}')">Post</button></div></div></div>`;
 }
 function renderReactions(postId,reactions) {
   const byEmoji={};
@@ -584,10 +587,11 @@ function setupEmojiPicker() {
 function renderComments(postId,comments) {
   const items=comments.map(c=>{
     const initial=(c.author||'?').charAt(0).toUpperCase();
+    const color=avatarColor(c.user_id||c.author);
     const date=new Date(c.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'});
     const isOwn=c.user_id===currentUser?.id;
     const del=isOwn?`<button class="comment-delete" onclick="deleteComment('${c.id}')">&#10005;</button>`:'';
-    return `<div class="comment-item" id="comment-${c.id}"><div class="comment-avatar">${initial}</div><div class="comment-body"><span class="comment-author">${escHtml(c.author)}</span><div class="comment-text">${escHtml(c.body)}</div><div class="comment-date">${date}</div></div>${del}</div>`;
+    return `<div class="comment-item" id="comment-${c.id}"><div class="comment-avatar" style="background:${color}">${initial}</div><div class="comment-body"><span class="comment-author">${escHtml(c.author)}</span><div class="comment-text">${escHtml(c.body)}</div><div class="comment-date">${date}</div></div>${del}</div>`;
   }).join('');
   return `<div class="comments-list" id="comments-${postId}">${items}</div>`;
 }
@@ -598,9 +602,10 @@ async function addComment(postId) {
   if (error||!data) return;
   const list=document.getElementById(`comments-${postId}`);
   const initial=(data.author||'?').charAt(0).toUpperCase();
+  const color=avatarColor(data.user_id||data.author);
   const date=new Date(data.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'});
   const div=document.createElement('div'); div.className='comment-item'; div.id=`comment-${data.id}`;
-  div.innerHTML=`<div class="comment-avatar">${initial}</div><div class="comment-body"><span class="comment-author">${escHtml(data.author)}</span><div class="comment-text">${escHtml(data.body)}</div><div class="comment-date">${date}</div></div><button class="comment-delete" onclick="deleteComment('${data.id}')">&#10005;</button>`;
+  div.innerHTML=`<div class="comment-avatar" style="background:${color}">${initial}</div><div class="comment-body"><span class="comment-author">${escHtml(data.author)}</span><div class="comment-text">${escHtml(data.body)}</div><div class="comment-date">${date}</div></div><button class="comment-delete" onclick="deleteComment('${data.id}')">&#10005;</button>`;
   list.appendChild(div);
 }
 async function deleteComment(commentId) {
@@ -619,6 +624,18 @@ async function deletePost(id) {
 function showMsg(id,text,type) { const el=document.getElementById(id); el.textContent=text; el.className=`msg ${type}`; }
 function hideMsg(id) { const el=document.getElementById(id); el.className='msg'; el.textContent=''; }
 function escHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+/* Distinct, white-text-friendly colors so each person is easy to tell apart. */
+const AVATAR_COLORS = [
+  '#e11d48','#ea580c','#c2410c','#ca8a04','#16a34a','#0d9488',
+  '#0891b2','#2563eb','#4f46e5','#7c3aed','#c026d3','#db2777',
+  '#be123c','#b45309','#15803d','#0f766e','#1d4ed8','#6d28d9'
+];
+function avatarColor(key) {
+  const s = String(key || '?');
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+}
 init();
 </script>
 </body>
