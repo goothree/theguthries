@@ -88,7 +88,7 @@
     .post-delete { margin-top: 8px; font-size: .8rem; color: var(--muted); background: none; border: none; cursor: pointer; padding: 0; }
     .post-delete:hover { color: var(--red); }
     .reactions-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 10px 20px; border-top: 1px solid var(--border); margin-top: 12px; }
-    .reaction-btn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 20px; border: 1.5px solid var(--border); background: none; cursor: pointer; font-size: .95rem; transition: all .15s; color: var(--text); }
+    .reaction-btn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 20px; border: 1.5px solid var(--border); background: none; cursor: pointer; font-size: .95rem; transition: all .15s; color: var(--text); touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
     .reaction-btn:hover { border-color: var(--brand2); background: #eff6ff; }
     .reaction-btn.reacted { border-color: var(--brand); background: #dbeafe; }
     .reaction-count { font-size: .78rem; font-weight: 600; color: var(--muted); }
@@ -569,7 +569,8 @@ function renderReactions(postId,reactions) {
     const mine=matches.find(r=>r.user_id===currentUser?.id);
     const cls=mine?'reaction-btn reacted':'reaction-btn';
     const tip=escHtml(formatReactionNames(matches.map(r=>nameForUser(r.user_id))));
-    return `<button class="${cls}" data-tip="${tip}" aria-label="${emoji} reaction from ${tip}" onmouseenter="showReactionTip(event)" onmouseleave="hideReactionTip()" onfocus="showReactionTip(event)" onblur="hideReactionTip()" onclick="toggleReaction('${postId}','${emoji}','${mine?mine.id:''}')">${emoji}<span class="reaction-count">${count}</span></button>`;
+    const existingId=mine?mine.id:'';
+    return `<button class="${cls}" data-tip="${tip}" aria-label="${emoji} reaction from ${tip}. Long-press to see who reacted." onmouseenter="showReactionTip(event)" onmouseleave="onReactionMouseLeave()" onfocus="showReactionTip(event)" onblur="onReactionBlur()" ontouchstart="reactionTouchStart(event)" ontouchmove="reactionTouchMove(event)" ontouchend="reactionTouchEnd(event)" ontouchcancel="reactionTouchCancel()" oncontextmenu="event.preventDefault()" onclick="onReactionClick(event,'${postId}','${emoji}','${existingId}')">${emoji}<span class="reaction-count">${count}</span></button>`;
   }).join('');
   return `<div class="reactions-row" id="reactions-${postId}">${chips}</div>`;
 }
@@ -584,6 +585,64 @@ async function refreshReactions(postId) {
   await ensureProfileNames((data||[]).map(r=>r.user_id));
   const el = document.getElementById(`reactions-${postId}`);
   if (el) el.outerHTML = renderReactions(postId, data||[]);
+}
+let reactionLpTimer = null;
+let reactionLpFired = false;
+let reactionTipPinned = false;
+let reactionLpStart = null;
+let reactionTipHideTimer = null;
+function reactionTouchStart(event) {
+  if (!event.touches || event.touches.length !== 1) return;
+  const btn = event.currentTarget;
+  const t = event.touches[0];
+  reactionLpStart = { x: t.clientX, y: t.clientY, btn };
+  reactionLpFired = false;
+  clearTimeout(reactionLpTimer);
+  reactionLpTimer = setTimeout(() => {
+    reactionLpFired = true;
+    reactionTipPinned = true;
+    showReactionTip({ currentTarget: btn });
+    clearTimeout(reactionTipHideTimer);
+    reactionTipHideTimer = setTimeout(() => hideReactionTip(), 3500);
+    if (navigator.vibrate) { try { navigator.vibrate(12); } catch (_) {} }
+  }, 450);
+}
+function reactionTouchMove(event) {
+  if (!reactionLpStart || !event.touches || !event.touches[0]) return;
+  const t = event.touches[0];
+  if (Math.abs(t.clientX - reactionLpStart.x) > 12 || Math.abs(t.clientY - reactionLpStart.y) > 12) {
+    clearTimeout(reactionLpTimer);
+    reactionLpTimer = null;
+  }
+}
+function reactionTouchEnd(event) {
+  clearTimeout(reactionLpTimer);
+  reactionLpTimer = null;
+  reactionLpStart = null;
+  if (reactionLpFired) event.preventDefault();
+}
+function reactionTouchCancel() {
+  clearTimeout(reactionLpTimer);
+  reactionLpTimer = null;
+  reactionLpStart = null;
+}
+function onReactionClick(event, postId, emoji, existingId) {
+  if (reactionLpFired) {
+    reactionLpFired = false;
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  hideReactionTip();
+  toggleReaction(postId, emoji, existingId);
+}
+function onReactionMouseLeave() {
+  if (reactionTipPinned) return;
+  hideReactionTip();
+}
+function onReactionBlur() {
+  if (reactionTipPinned) return;
+  hideReactionTip();
 }
 function showReactionTip(event) {
   const btn = event.currentTarget;
@@ -607,11 +666,19 @@ function showReactionTip(event) {
   tip.style.top = top + 'px';
 }
 function hideReactionTip() {
+  reactionTipPinned = false;
+  clearTimeout(reactionTipHideTimer);
+  reactionTipHideTimer = null;
   const tip = document.getElementById('reaction-tip');
   if (!tip) return;
   tip.classList.remove('open','tip-below');
   tip.setAttribute('aria-hidden','true');
 }
+document.addEventListener('pointerdown', (e) => {
+  if (!reactionTipPinned) return;
+  if (e.target && e.target.closest && e.target.closest('.reaction-btn')) return;
+  hideReactionTip();
+}, true);
 let emojiTargetPostId = null;
 async function addReaction(postId, emoji) {
   // Add the reaction if the user hasn't already used this emoji here.
