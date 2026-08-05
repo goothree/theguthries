@@ -1,4 +1,4 @@
-// Service worker for The Guthrie's — handles Web Push notifications.
+// Service worker for FamJam — handles Web Push notifications.
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
@@ -6,7 +6,7 @@ self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; }
   catch (e) { data = { body: event.data ? event.data.text() : '' }; }
-  const title = data.title || "The Guthrie's";
+  const title = data.title || 'FamJam';
   const options = {
     body: data.body || '',
     icon: 'icons/icon-192.png',
