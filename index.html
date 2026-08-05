@@ -93,6 +93,21 @@
     .reaction-btn.reacted { border-color: var(--brand); background: #dbeafe; }
     .reaction-count { font-size: .78rem; font-weight: 600; color: var(--muted); }
     .reaction-btn.reacted .reaction-count { color: var(--brand); }
+    /* Fixed so the tip isn't clipped by .post-card { overflow: hidden }. */
+    #reaction-tip {
+      position: fixed; z-index: 360; display: none; max-width: min(240px, 80vw);
+      padding: 7px 11px; border-radius: 8px; background: var(--text); color: var(--card);
+      font-size: .78rem; font-weight: 600; line-height: 1.35; text-align: center;
+      box-shadow: 0 4px 16px rgba(0,0,0,.22); pointer-events: none;
+    }
+    #reaction-tip.open { display: block; }
+    #reaction-tip::after {
+      content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+      border: 6px solid transparent; border-top-color: var(--text);
+    }
+    #reaction-tip.tip-below::after {
+      top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: var(--text);
+    }
     .comments-section { padding: 0 20px 16px; }
     .comments-list { margin-bottom: 10px; }
     .comment-item { display: flex; gap: 8px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--border); }
@@ -254,6 +269,7 @@
 
   <div id="toast" class="toast"></div>
   <div id="emoji-popover" class="emoji-popover"><emoji-picker></emoji-picker></div>
+  <div id="reaction-tip" role="tooltip" aria-hidden="true"></div>
   <div id="lightbox" class="lightbox" onclick="if(event.target===this)closeLightbox()">
     <button class="lb-close" onclick="closeLightbox()" aria-label="Close">&#10005;</button>
     <button class="lb-nav lb-prev" onclick="lightboxPrev(event)" aria-label="Previous">&#8249;</button>
@@ -282,6 +298,8 @@ if ('serviceWorker' in navigator) {
 }
 
 let currentUser = null, currentProfile = null;
+/** Cache of profile id → display name for reaction tooltips. */
+const profileNames = {};
 
 async function init() {
   setupEmojiPicker();
@@ -295,6 +313,7 @@ async function init() {
 async function loadProfile() {
   const { data } = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
   currentProfile = data;
+  if (data?.name && currentUser?.id) profileNames[currentUser.id] = data.name;
 }
 function showAuth() { document.getElementById('auth-screen').style.display='flex'; document.getElementById('app-screen').style.display='none'; }
 function showApp() {
@@ -446,11 +465,31 @@ async function loadFeed() {
     sb.from('reactions').select('*').in('post_id',ids),
     sb.from('comments').select('*').in('post_id',ids).order('created_at',{ascending:true}),
   ]);
+  await ensureProfileNames((reactions||[]).map(r=>r.user_id));
   const rxByPost={}, cmtByPost={};
   ids.forEach(id=>{ rxByPost[id]=[]; cmtByPost[id]=[]; });
   (reactions||[]).forEach(r=>rxByPost[r.post_id]?.push(r));
   (comments||[]).forEach(c=>cmtByPost[c.post_id]?.push(c));
   feed.innerHTML=posts.map(p=>renderPost(p,rxByPost[p.id]||[],cmtByPost[p.id]||[])).join('');
+}
+async function ensureProfileNames(userIds) {
+  const missing=[...new Set((userIds||[]).filter(Boolean))].filter(id=>!profileNames[id]);
+  if (currentUser?.id && currentProfile?.name) profileNames[currentUser.id]=currentProfile.name;
+  if (!missing.length) return;
+  const { data } = await sb.from('profiles').select('id,name').in('id',missing);
+  (data||[]).forEach(p=>{ if (p?.id) profileNames[p.id]=p.name; });
+}
+function nameForUser(userId) {
+  if (userId && profileNames[userId]) return profileNames[userId];
+  if (userId===currentUser?.id) return currentProfile?.name || currentUser?.email || 'You';
+  return 'Family Member';
+}
+function formatReactionNames(names) {
+  const unique=[];
+  names.forEach(n=>{ if (n && !unique.includes(n)) unique.push(n); });
+  if (unique.length<=1) return unique[0]||'';
+  if (unique.length===2) return unique[0]+' and '+unique[1];
+  return unique.slice(0,-1).join(', ')+', and '+unique[unique.length-1];
 }
 function currentEmail() { return (currentUser?.email || '').toLowerCase(); }
 function isAdminUser() { return currentEmail() === ADMIN_EMAIL.toLowerCase(); }
@@ -529,19 +568,49 @@ function renderReactions(postId,reactions) {
     const matches=byEmoji[emoji]; const count=matches.length;
     const mine=matches.find(r=>r.user_id===currentUser?.id);
     const cls=mine?'reaction-btn reacted':'reaction-btn';
-    return `<button class="${cls}" onclick="toggleReaction('${postId}','${emoji}','${mine?mine.id:''}')">${emoji}<span class="reaction-count">${count}</span></button>`;
+    const tip=escHtml(formatReactionNames(matches.map(r=>nameForUser(r.user_id))));
+    return `<button class="${cls}" data-tip="${tip}" aria-label="${emoji} reaction from ${tip}" onmouseenter="showReactionTip(event)" onmouseleave="hideReactionTip()" onfocus="showReactionTip(event)" onblur="hideReactionTip()" onclick="toggleReaction('${postId}','${emoji}','${mine?mine.id:''}')">${emoji}<span class="reaction-count">${count}</span></button>`;
   }).join('');
   return `<div class="reactions-row" id="reactions-${postId}">${chips}</div>`;
 }
 async function toggleReaction(postId,emoji,existingId) {
+  hideReactionTip();
   if (existingId) { await sb.from('reactions').delete().eq('id',existingId); }
   else { await sb.from('reactions').insert({post_id:postId,user_id:currentUser.id,emoji}); }
   await refreshReactions(postId);
 }
 async function refreshReactions(postId) {
   const { data } = await sb.from('reactions').select('*').eq('post_id',postId);
+  await ensureProfileNames((data||[]).map(r=>r.user_id));
   const el = document.getElementById(`reactions-${postId}`);
   if (el) el.outerHTML = renderReactions(postId, data||[]);
+}
+function showReactionTip(event) {
+  const btn = event.currentTarget;
+  const text = btn.getAttribute('data-tip');
+  const tip = document.getElementById('reaction-tip');
+  if (!tip || !text) return;
+  tip.textContent = text;
+  tip.classList.add('open');
+  tip.classList.remove('tip-below');
+  tip.setAttribute('aria-hidden','false');
+  const r = btn.getBoundingClientRect();
+  const tipW = tip.offsetWidth, tipH = tip.offsetHeight;
+  let left = r.left + r.width/2 - tipW/2;
+  left = Math.max(8, Math.min(left, window.innerWidth - tipW - 8));
+  let top = r.top - tipH - 10;
+  if (top < 8) {
+    top = r.bottom + 10;
+    tip.classList.add('tip-below');
+  }
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+}
+function hideReactionTip() {
+  const tip = document.getElementById('reaction-tip');
+  if (!tip) return;
+  tip.classList.remove('open','tip-below');
+  tip.setAttribute('aria-hidden','true');
 }
 let emojiTargetPostId = null;
 async function addReaction(postId, emoji) {
