@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>FamJam</title>
   <!-- Installable web app (Add to Home Screen). Relative paths so it works
        both at the site root and under a GitHub Pages subpath. -->
@@ -31,6 +31,7 @@
       --radius:  14px;
       --shadow:  0 2px 12px rgba(0,0,0,.08);
     }
+    html, body { touch-action: pan-x pan-y; overscroll-behavior-x: none; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
     #auth-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: linear-gradient(135deg, #dbeafe 0%, #f0f4f9 60%); }
     .auth-box { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 40px 36px; width: 100%; max-width: 420px; }
@@ -158,9 +159,9 @@
     .collage-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .post-collage.n3 .collage-tile:first-child { grid-column: 1 / -1; aspect-ratio: 2 / 1; }
     .collage-more { position: absolute; inset: 0; background: rgba(0,0,0,.5); color: #fff; font-size: 1.7rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
-    .lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.93); z-index: 500; align-items: center; justify-content: center; }
-    .lightbox.open { display: flex; }
-    .lb-img { max-width: 92vw; max-height: 86vh; object-fit: contain; border-radius: 6px; user-select: none; }
+    .lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.93); z-index: 500; align-items: center; justify-content: center; touch-action: none; }
+    .lightbox.open { display: flex; touch-action: auto; }
+    .lb-img { max-width: 92vw; max-height: 86vh; object-fit: contain; border-radius: 6px; user-select: none; touch-action: pinch-zoom; }
     .lb-close { position: absolute; top: 16px; right: 18px; background: rgba(0,0,0,.45); color: #fff; border: none; font-size: 1.3rem; width: 44px; height: 44px; border-radius: 50%; cursor: pointer; }
     .lb-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,.45); color: #fff; border: none; font-size: 2rem; width: 48px; height: 48px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
     .lb-prev { left: 14px; } .lb-next { right: 14px; }
@@ -513,12 +514,24 @@ function renderCollage(postId, imgs) {
   return `<div class="post-collage n${Math.min(imgs.length, 4)}">${tiles}</div>`;
 }
 let lbImages = [], lbIndex = 0;
+const VIEWPORT_LOCKED = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
+const VIEWPORT_ZOOMABLE = 'width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover';
+function lightboxIsOpen() {
+  return !!document.getElementById('lightbox')?.classList.contains('open');
+}
+function setViewportZoom(enabled) {
+  const meta = document.querySelector('meta[name="viewport"]');
+  if (!meta) return;
+  // Rewriting content resets scale when re-locking after a pinch-zoom.
+  meta.setAttribute('content', enabled ? VIEWPORT_ZOOMABLE : VIEWPORT_LOCKED);
+}
 function openLightbox(postId, index) {
   const imgs = feedImages[postId] || [];
   if (!imgs.length) return;
   lbImages = imgs; lbIndex = index || 0;
   renderLightbox();
   document.getElementById('lightbox').classList.add('open');
+  setViewportZoom(true);
 }
 function renderLightbox() {
   document.getElementById('lightbox-img').src = lbImages[lbIndex];
@@ -531,22 +544,36 @@ function renderLightbox() {
 }
 function lightboxPrev(e) { if (e) e.stopPropagation(); if (!lbImages.length) return; lbIndex = (lbIndex - 1 + lbImages.length) % lbImages.length; renderLightbox(); }
 function lightboxNext(e) { if (e) e.stopPropagation(); if (!lbImages.length) return; lbIndex = (lbIndex + 1) % lbImages.length; renderLightbox(); }
-function closeLightbox() { document.getElementById('lightbox').classList.remove('open'); }
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+  setViewportZoom(false);
+}
 document.addEventListener('keydown', (e) => {
-  if (!document.getElementById('lightbox').classList.contains('open')) return;
+  if (!lightboxIsOpen()) return;
   if (e.key === 'ArrowLeft') lightboxPrev();
   else if (e.key === 'ArrowRight') lightboxNext();
   else if (e.key === 'Escape') closeLightbox();
 });
 (function () {
   let sx = null;
-  const isOpen = () => document.getElementById('lightbox').classList.contains('open');
-  document.addEventListener('touchstart', (e) => { if (isOpen()) sx = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener('touchstart', (e) => {
+    if (lightboxIsOpen() && e.touches.length === 1) sx = e.touches[0].clientX;
+    else sx = null;
+  }, { passive: true });
   document.addEventListener('touchend', (e) => {
-    if (sx === null || !isOpen()) return;
+    if (sx === null || !lightboxIsOpen() || e.touches.length > 0) return;
     const dx = e.changedTouches[0].clientX - sx; sx = null;
+    // Ignore small moves / pinch leftovers so zooming a photo doesn't swipe.
     if (Math.abs(dx) > 40) { dx < 0 ? lightboxNext() : lightboxPrev(); }
   }, { passive: true });
+  // iOS Safari sometimes ignores user-scalable=no; block pinch gestures on the main UI.
+  const blockPinch = (e) => { if (!lightboxIsOpen()) e.preventDefault(); };
+  document.addEventListener('gesturestart', blockPinch, { passive: false });
+  document.addEventListener('gesturechange', blockPinch, { passive: false });
+  document.addEventListener('gestureend', blockPinch, { passive: false });
+  document.addEventListener('touchmove', (e) => {
+    if (!lightboxIsOpen() && e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
 })();
 function renderPost(p,reactions,comments) {
   const date=new Date(p.created_at).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
