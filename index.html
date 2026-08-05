@@ -570,7 +570,7 @@ function renderReactions(postId,reactions) {
     const cls=mine?'reaction-btn reacted':'reaction-btn';
     const tip=escHtml(formatReactionNames(matches.map(r=>nameForUser(r.user_id))));
     const existingId=mine?mine.id:'';
-    return `<button class="${cls}" data-tip="${tip}" aria-label="${emoji} reaction from ${tip}" onmouseenter="showReactionTip(event)" onmouseleave="hideReactionTipIfHover()" onfocus="showReactionTip(event)" onblur="hideReactionTipIfHover()" ontouchstart="reactionPressStart(event)" ontouchmove="reactionPressMove(event)" ontouchend="reactionPressEnd(event)" ontouchcancel="reactionPressEnd(event)" oncontextmenu="return false" onclick="reactionClick(event,'${postId}','${emoji}','${existingId}')">${emoji}<span class="reaction-count">${count}</span></button>`;
+    return `<button class="${cls}" data-tip="${tip}" aria-label="${emoji} reaction from ${tip}" onmouseenter="showReactionTipFromPointer(event)" onmouseleave="hideReactionTipIfHover()" onfocus="showReactionTipFromPointer(event)" onblur="hideReactionTipIfHover()" ontouchstart="reactionPressStart(event)" ontouchmove="reactionPressMove(event)" ontouchend="reactionPressEnd(event)" ontouchcancel="reactionPressEnd(event)" oncontextmenu="return false" onclick="reactionClick(event,'${postId}','${emoji}','${existingId}')">${emoji}<span class="reaction-count">${count}</span></button>`;
   }).join('');
   return `<div class="reactions-row" id="reactions-${postId}">${chips}</div>`;
 }
@@ -579,8 +579,10 @@ let reactionHoldTimer = null;
 let reactionHoldFired = false;
 let reactionHoldStart = null;
 let reactionTipFromHold = false;
+let reactionLastTouchAt = 0;
 function reactionPressStart(event) {
   if (!event.touches || event.touches.length !== 1) return;
+  reactionLastTouchAt = Date.now();
   clearTimeout(reactionHoldTimer);
   reactionHoldFired = false;
   const t = event.touches[0];
@@ -603,6 +605,7 @@ function reactionPressMove(event) {
   }
 }
 function reactionPressEnd() {
+  reactionLastTouchAt = Date.now();
   clearTimeout(reactionHoldTimer);
   reactionHoldTimer = null;
   reactionHoldStart = null;
@@ -629,6 +632,11 @@ async function refreshReactions(postId) {
   const el = document.getElementById(`reactions-${postId}`);
   if (el) el.outerHTML = renderReactions(postId, data||[]);
 }
+function showReactionTipFromPointer(event) {
+  // Ignore mouseenter/focus synthesized from a finger tap/hold.
+  if (Date.now() - reactionLastTouchAt < 900) return;
+  showReactionTip(event);
+}
 function showReactionTip(event, opts) {
   const btn = event.currentTarget;
   const text = btn.getAttribute('data-tip');
@@ -654,6 +662,7 @@ function showReactionTip(event, opts) {
 function hideReactionTipIfHover() {
   // After a long-press, ignore synthetic mouseleave/blur so the tip stays readable.
   if (reactionTipFromHold) return;
+  if (Date.now() - reactionLastTouchAt < 900) return;
   hideReactionTip();
 }
 function hideReactionTip() {
